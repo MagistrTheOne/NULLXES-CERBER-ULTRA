@@ -1,0 +1,12 @@
+model: yolo26n-seg.pt
+data: coco8-seg.yaml
+epochs: 3
+imgsz: 640
+device: 0
+batch: 8
+optimizer: auto
+project: outputs
+name: coco8-seg-smoke
+patience: 10
+workers: 2
+exist_ok: true
