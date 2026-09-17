@@ -1,20 +1,15 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+import time
 
 import numpy as np
 
 from cerber.config import RuntimeConfig
+from cerber.core.adapters import adapt_result
+from cerber.core.result import Detection, FrameResult
+from cerber.tasks import TRACKABLE_TASKS
 
-
-@dataclass(frozen=True)
-class Detection:
-    xyxy: tuple[float, float, float, float]
-    cls: int
-    conf: float
-    name: str
-    track_id: int | None = None
-    mask: np.ndarray | None = None
+__all__ = ["Detection", "Detector"]
 
 
 class Detector:
@@ -27,58 +22,40 @@ class Detector:
         self.names = {int(key): str(value) for key, value in names.items()}
 
     def predict(self, frame: np.ndarray) -> list[Detection]:
-        results = self.model.predict(
-            frame,
-            imgsz=self.config.imgsz,
-            conf=self.config.conf,
-            iou=self.config.iou,
-            device=self.config.device,
-            verbose=self.config.verbose,
-        )
-        return self._parse(results[0])
+        return self.infer(frame, persist=False).instances
 
     def track(self, frame: np.ndarray, tracker: str) -> list[Detection]:
-        results = self.model.track(
-            frame,
-            persist=True,
-            tracker=tracker,
-            imgsz=self.config.imgsz,
-            conf=self.config.conf,
-            iou=self.config.iou,
-            device=self.config.device,
-            verbose=self.config.verbose,
-        )
-        return self._parse(results[0])
+        return self.infer(frame, persist=True, tracker=tracker).instances
 
-    def _parse(self, result: object) -> list[Detection]:
-        boxes = getattr(result, "boxes", None)
-        if boxes is None or boxes.xyxy is None or len(boxes) == 0:
-            return []
-        xyxy = boxes.xyxy.cpu().numpy()
-        cls_ids = boxes.cls.cpu().numpy().astype(int)
-        confs = boxes.conf.cpu().numpy()
-        track_ids = None
-        raw_ids = getattr(boxes, "id", None)
-        if raw_ids is not None:
-            track_ids = raw_ids.cpu().numpy().astype(int)
-        masks = None
-        mask_data = getattr(getattr(result, "masks", None), "data", None)
-        if mask_data is not None:
-            masks = mask_data.cpu().numpy()
-        detections: list[Detection] = []
-        for index, box in enumerate(xyxy):
-            cls_id = int(cls_ids[index])
-            mask = None
-            if masks is not None and index < len(masks):
-                mask = (masks[index] > 0.5).astype(np.uint8)
-            detections.append(
-                Detection(
-                    xyxy=(float(box[0]), float(box[1]), float(box[2]), float(box[3])),
-                    cls=cls_id,
-                    conf=float(confs[index]),
-                    name=self.names.get(cls_id, str(cls_id)),
-                    track_id=int(track_ids[index]) if track_ids is not None else None,
-                    mask=mask,
-                )
-            )
-        return detections
+    def infer(
+        self,
+        frame: np.ndarray,
+        persist: bool | None = None,
+        tracker: str | None = None,
+        frame_id: int = 0,
+        captured_at: float | None = None,
+    ) -> FrameResult:
+        captured = time.time() if captured_at is None else captured_at
+        use_track = (self.config.persist if persist is None else persist) and self.config.task in TRACKABLE_TASKS
+        kwargs = {
+            "imgsz": self.config.imgsz,
+            "conf": self.config.conf,
+            "iou": self.config.iou,
+            "device": self.config.device,
+            "verbose": self.config.verbose,
+        }
+        if use_track:
+            results = self.model.track(frame, persist=True, tracker=tracker or self.config.tracker, **kwargs)
+        else:
+            results = self.model.predict(frame, **kwargs)
+        finished = time.time()
+        raw = results[0] if results else object()
+        return adapt_result(
+            raw,
+            task=self.config.task,
+            model=self.config.weights,
+            frame_id=frame_id,
+            captured_at=captured,
+            finished_at=finished,
+            names=self.names,
+        )

@@ -1,0 +1,13 @@
+model: yolo26n-sem.pt
+data: cityscapes8.yaml
+task: semantic
+epochs: 3
+imgsz: 640
+device: 0
+batch: 4
+optimizer: auto
+project: outputs
+name: cityscapes8-sem-smoke
+patience: 10
+workers: 2
+exist_ok: true

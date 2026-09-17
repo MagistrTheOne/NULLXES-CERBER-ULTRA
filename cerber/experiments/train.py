@@ -22,6 +22,7 @@ def main(argv: list[str] | None = None) -> int:
         "config": args.config,
         "model": experiment.model,
         "data": experiment.data,
+        "task": experiment.task,
         "save_dir": str(getattr(results, "save_dir", run_dir)),
         "best": str(experiment.best_weights()),
         "last": str(experiment.last_weights()),

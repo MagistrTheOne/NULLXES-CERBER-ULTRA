@@ -5,25 +5,30 @@ import json
 import sys
 
 from cerber.experiments.config import load_experiment_config
+from cerber.experiments.metrics import extract_metrics
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Validate a YOLO26 experiment")
     parser.add_argument("--config", required=True)
     parser.add_argument("--weights")
+    parser.add_argument("--data")
+    parser.add_argument("--imgsz", type=int)
     args = parser.parse_args(argv)
     experiment = load_experiment_config(args.config)
     weights = args.weights or str(experiment.best_weights())
+    data = args.data or experiment.data
+    imgsz = args.imgsz if args.imgsz is not None else experiment.imgsz
     from ultralytics import YOLO
 
     model = YOLO(weights)
-    metrics = model.val(data=experiment.data, imgsz=experiment.imgsz, device=experiment.device)
-    box = getattr(metrics, "box", None)
+    metrics = model.val(data=data, imgsz=imgsz, device=experiment.device)
     payload = {
         "weights": weights,
-        "data": experiment.data,
-        "map50-95": float(getattr(box, "map", 0.0) or 0.0) if box is not None else None,
-        "map50": float(getattr(box, "map50", 0.0) or 0.0) if box is not None else None,
+        "data": data,
+        "imgsz": imgsz,
+        "task": experiment.task,
+        **extract_metrics(metrics),
     }
     print(json.dumps(payload, indent=2))
     run_dir = experiment.run_dir()

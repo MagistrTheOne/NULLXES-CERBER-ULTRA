@@ -1,0 +1,13 @@
+model: yolo26n-pose.pt
+data: coco8-pose.yaml
+task: pose
+epochs: 3
+imgsz: 640
+device: 0
+batch: 8
+optimizer: auto
+project: outputs
+name: coco8-pose-smoke
+patience: 10
+workers: 2
+exist_ok: true

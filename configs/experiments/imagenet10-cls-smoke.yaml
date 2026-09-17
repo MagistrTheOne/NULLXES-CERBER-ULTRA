@@ -1,0 +1,13 @@
+model: yolo26n-cls.pt
+data: imagenet10
+task: classify
+epochs: 3
+imgsz: 224
+device: 0
+batch: 16
+optimizer: auto
+project: outputs
+name: imagenet10-cls-smoke
+patience: 10
+workers: 2
+exist_ok: true

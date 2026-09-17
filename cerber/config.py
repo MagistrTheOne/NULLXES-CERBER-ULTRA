@@ -1,10 +1,12 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
 import yaml
+
+from cerber.tasks import TASKS, infer_task
 
 
 def project_root() -> Path:
@@ -28,11 +30,20 @@ def _as_device(value: Any) -> int | str:
     if value is None:
         return 0
     if isinstance(value, int):
-        return value
+        return int(value)
     text = str(value).strip()
     if text.isdigit() or (text.startswith("-") and text[1:].isdigit()):
         return int(text)
     return text
+
+
+@dataclass(frozen=True)
+class AuxModule:
+    weights: str
+    task: str
+    every: int = 5
+    imgsz: int | None = None
+    persist: bool = False
 
 
 @dataclass(frozen=True)
@@ -51,6 +62,7 @@ class RuntimeConfig:
     max_lost: int = 30
     events_dir: str = "outputs/events"
     log_every: int = 30
+    aux: tuple[AuxModule, ...] = ()
 
     def resolved_weights(self) -> str:
         path = Path(self.weights)
@@ -67,6 +79,38 @@ class RuntimeConfig:
             return path
         return project_root() / path
 
+    def for_aux(self, module: AuxModule) -> RuntimeConfig:
+        return replace(
+            self,
+            weights=module.weights,
+            task=module.task,
+            persist=False,
+            imgsz=module.imgsz if module.imgsz is not None else self.imgsz,
+        )
+
+
+def _parse_aux(raw: Any, parent_weights: str) -> tuple[AuxModule, ...]:
+    if not raw:
+        return ()
+    if not isinstance(raw, list):
+        raise ValueError("aux must be a list of modules")
+    modules: list[AuxModule] = []
+    for item in raw:
+        if not isinstance(item, dict):
+            raise ValueError("aux item must be a mapping")
+        weights = str(item.get("weights") or parent_weights)
+        task = infer_task(weights, str(item["task"]) if item.get("task") else None)
+        modules.append(
+            AuxModule(
+                weights=weights,
+                task=task,
+                every=max(1, int(item.get("every", 5))),
+                imgsz=int(item["imgsz"]) if item.get("imgsz") is not None else None,
+                persist=False,
+            )
+        )
+    return tuple(modules)
+
 
 def load_runtime_config(path: str | Path, **overrides: Any) -> RuntimeConfig:
     config_path = Path(path)
@@ -76,11 +120,13 @@ def load_runtime_config(path: str | Path, **overrides: Any) -> RuntimeConfig:
     if not isinstance(raw, dict):
         raise ValueError(f"runtime config must be a mapping: {config_path}")
     raw.update({key: value for key, value in overrides.items() if value is not None})
-    task = str(raw.get("task", "segment")).lower()
-    if task not in {"detect", "segment"}:
+    weights = str(raw["weights"])
+    explicit = raw.get("task")
+    task = infer_task(weights, str(explicit).lower() if explicit is not None else None)
+    if task not in TASKS:
         raise ValueError(f"unsupported task: {task}")
     return RuntimeConfig(
-        weights=str(raw["weights"]),
+        weights=weights,
         source=_as_source(raw.get("source", 0)),
         imgsz=int(raw.get("imgsz", 640)),
         conf=float(raw.get("conf", 0.25)),
@@ -94,4 +140,5 @@ def load_runtime_config(path: str | Path, **overrides: Any) -> RuntimeConfig:
         max_lost=int(raw.get("max_lost", 30)),
         events_dir=str(raw.get("events_dir", "outputs/events")),
         log_every=int(raw.get("log_every", 30)),
+        aux=_parse_aux(raw.get("aux"), weights),
     )

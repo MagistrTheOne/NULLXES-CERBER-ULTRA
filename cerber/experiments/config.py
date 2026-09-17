@@ -7,6 +7,7 @@ from typing import Any
 import yaml
 
 from cerber.config import project_root
+from cerber.tasks import infer_task
 
 
 @dataclass(frozen=True)
@@ -23,6 +24,7 @@ class ExperimentConfig:
     patience: int = 50
     workers: int = 8
     exist_ok: bool = True
+    task: str | None = None
     extra: dict[str, Any] | None = None
 
     def train_kwargs(self) -> dict[str, Any]:
@@ -72,6 +74,7 @@ KNOWN = {
     "patience",
     "workers",
     "exist_ok",
+    "task",
 }
 
 
@@ -99,5 +102,6 @@ def load_experiment_config(path: str | Path) -> ExperimentConfig:
         patience=int(raw.get("patience", 50)),
         workers=int(raw.get("workers", 8)),
         exist_ok=bool(raw.get("exist_ok", True)),
+        task=infer_task(str(raw["model"]), str(raw["task"]) if raw.get("task") else None),
         extra=extra or None,
     )

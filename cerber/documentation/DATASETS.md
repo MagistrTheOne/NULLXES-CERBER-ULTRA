@@ -21,6 +21,11 @@
 | `coco128-seg.yaml` | отладка seg |
 | `coco.yaml` | полный COCO (и seg-аннотации) |
 | `VisDrone.yaml` | загрузка и конвертация VisDrone DET |
+| `coco8-pose.yaml` | smoke pose |
+| `dota8.yaml` | smoke OBB |
+| `cityscapes8.yaml` | smoke semantic |
+| `depth8.yaml` | smoke depth |
+| `imagenet10` | smoke classify (каталоги классов, не yaml) |
 
 Готовые COCO-веса уже знают `person`, `car`, `truck`, `bus`, `motorcycle`, `bicycle`, `boat`. Класса `drone` нет; `airplane` его не заменяет.
 
@@ -41,7 +46,19 @@ python -m cerber.experiments.train --config configs/experiments/coco8-seg.yaml
 python -m cerber.experiments.train --config configs/experiments/visdrone-n.yaml
 python -m cerber.experiments.train --config configs/experiments/seraphim-subset.yaml
 python -m cerber.experiments.val --config configs/experiments/visdrone-n.yaml
+python -m cerber.experiments.val --config configs/experiments/visdrone-n.yaml --imgsz 960
 python -m cerber.experiments.export --config configs/experiments/visdrone-n.yaml --format onnx
+python -m cerber.experiments.probe --catalog configs/probe/catalog.yaml
+```
+
+Smoke недостающих задач (не повторять detect/seg). Classify: `data: imagenet10`, не yaml. Depth: AdamW, `lr0=1e-4`.
+
+```bash
+python -m cerber.experiments.train --config configs/experiments/dota8-obb-smoke.yaml
+python -m cerber.experiments.train --config configs/experiments/coco8-pose-smoke.yaml
+python -m cerber.experiments.train --config configs/experiments/cityscapes8-sem-smoke.yaml
+python -m cerber.experiments.train --config configs/experiments/depth8-smoke.yaml
+python -m cerber.experiments.train --config configs/experiments/imagenet10-cls-smoke.yaml
 ```
 
 Чекпойнты: `outputs/<name>/weights/best.pt`, `last.pt`, `cerber-experiment.json`. После выбора весов — ONNX и сверка с `.pt` на тех же кадрах.

@@ -6,12 +6,13 @@ A100 в Colab — обучение. RTX 2080 Super — захват и runtime. 
 
 1. CUDA torch и камера на локалке.
 2. Цикл `python -m cerber --config configs/runtime.yaml` (`yolo26n-seg.pt`), FPS и p95.
-3. Colab: smoke `coco8-seg`, затем train `yolo26n.pt` на VisDrone.
-4. Отдельный train: подвыборка Seraphim, класс `drone`, val из train, test не трогать.
-5. Выбранные веса локально: ByteTrack → scene → events.
-6. Позже: 150–300 кадров своей камеры для переноса; FRED; SAM-маски по боксам.
+3. Colab: smoke `coco8-seg`, train VisDrone, train Seraphim — **сделано**.
+4. Метрики Seraphim, затем probe семи готовых голов без train.
+5. Пять отдельных smoke: OBB, pose, semantic, depth, classify.
+6. Профили `runtime-ground` / `runtime-indoor` / `runtime-air` / `runtime-drone`. Aux включать после замера VRAM.
+7. Следующий полный train — по найденной ошибке (VisDrone recall: val 640 vs 960, затем n vs s). OBB не чинит пропуски людей.
 
-Не смешивать словари классов. Чекпойнты в `outputs/<name>/`.
+Не смешивать словари классов. Чекпойнты в `outputs/<name>/`. Smoke-веса не на борт, пока val не лучше предобученных.
 
 ## Стек
 

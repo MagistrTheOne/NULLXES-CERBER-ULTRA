@@ -1,0 +1,33 @@
+device: 0
+source: data/probe
+output: outputs/probe
+warmup: 3
+modules:
+  - name: detect
+    weights: yolo26n.pt
+    task: detect
+    imgsz: 640
+  - name: segment
+    weights: yolo26n-seg.pt
+    task: segment
+    imgsz: 640
+  - name: pose
+    weights: yolo26n-pose.pt
+    task: pose
+    imgsz: 640
+  - name: obb
+    weights: yolo26n-obb.pt
+    task: obb
+    imgsz: 1024
+  - name: semantic
+    weights: yolo26n-sem.pt
+    task: semantic
+    imgsz: 640
+  - name: depth
+    weights: yolo26n-depth.pt
+    task: depth
+    imgsz: 768
+  - name: classify
+    weights: yolo26n-cls.pt
+    task: classify
+    imgsz: 224

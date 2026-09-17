@@ -235,3 +235,94 @@ for weights in sorted(run_root.glob("*/weights/*")):
         print(weights.relative_to(run_root), f"{weights.stat().st_size / 1024**2:.1f} MiB")
 print(run_root)
 ```
+
+---
+
+## Лаборатория семи задач (после Seraphim)
+
+Detect и instance-seg заново не учим. Сначала `git pull`, потом готовые веса, потом пять отдельных smoke. Каждый smoke — отдельный процесс, затем очистка GPU. На борт остаются предобученные `yolo26n-*.pt`, пока val не покажет выигрыш.
+
+```python
+%cd /content/NULLXES-CERBER-ULTRA
+!git pull
+```
+
+Капни в `data/probe/{street,indoor,air,people}/` по несколько jpg. Если папка пустая, probe сам тянет `bus.jpg` / `boats.jpg`.
+
+```python
+import gc
+import torch
+
+probe_root = run_root / "probe"
+execute(
+    "cerber.experiments.probe",
+    "--catalog", "configs/probe/catalog.yaml",
+    "--source", str(repo / "data/probe"),
+    "--output", str(probe_root),
+    "--device", "0",
+)
+print((probe_root / "probe-index.json").read_text(encoding="utf-8"))
+```
+
+Численный val готовых голов (размеченные tiny-сеты, не свои кадры):
+
+```python
+from ultralytics import YOLO
+import json, gc, torch
+
+pretrained = [
+    ("detect", "yolo26n.pt", "coco8.yaml", 640),
+    ("segment", "yolo26n-seg.pt", "coco8-seg.yaml", 640),
+    ("pose", "yolo26n-pose.pt", "coco8-pose.yaml", 640),
+    ("obb", "yolo26n-obb.pt", "dota8.yaml", 1024),
+    ("semantic", "yolo26n-sem.pt", "cityscapes8.yaml", 640),
+    ("depth", "yolo26n-depth.pt", "depth8.yaml", 768),
+    ("classify", "yolo26n-cls.pt", "imagenet10", 224),
+]
+out = run_root / "pretrained-val"
+out.mkdir(parents=True, exist_ok=True)
+for name, weights, data, imgsz in pretrained:
+    metrics = YOLO(weights).val(data=data, imgsz=imgsz, device=0)
+    from cerber.experiments.metrics import extract_metrics
+    payload = {"name": name, "weights": weights, "data": data, "imgsz": imgsz, **extract_metrics(metrics)}
+    (out / f"{name}.json").write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    print(name, payload)
+    del metrics
+    gc.collect()
+    torch.cuda.empty_cache()
+```
+
+Пять smoke (отдельные конфиги, не общий цикл гиперпараметров):
+
+```python
+import gc, torch, yaml
+from pathlib import Path
+
+smoke_dir = run_root / "configs" / "smoke"
+smoke_dir.mkdir(parents=True, exist_ok=True)
+smokes = [
+    "configs/experiments/dota8-obb-smoke.yaml",
+    "configs/experiments/coco8-pose-smoke.yaml",
+    "configs/experiments/cityscapes8-sem-smoke.yaml",
+    "configs/experiments/depth8-smoke.yaml",
+    "configs/experiments/imagenet10-cls-smoke.yaml",
+]
+for source in smokes:
+    cfg = yaml.safe_load(Path(source).read_text(encoding="utf-8"))
+    cfg["project"] = str(run_root)
+    dest = smoke_dir / Path(source).name
+    dest.write_text(yaml.safe_dump(cfg, sort_keys=False), encoding="utf-8")
+    execute("cerber.experiments.train", "--config", dest)
+    execute("cerber.experiments.val", "--config", dest)
+    gc.collect()
+    torch.cuda.empty_cache()
+```
+
+VisDrone: тот же `best.pt`, два `imgsz` — не новый train:
+
+```python
+execute("cerber.experiments.val", "--config", configs["visdrone"], "--imgsz", 640)
+execute("cerber.experiments.val", "--config", configs["visdrone"], "--imgsz", 960)
+```
+
+Профили борта после probe: `configs/runtime-ground.yaml`, `runtime-indoor.yaml`, `runtime-air.yaml`, `runtime-drone.yaml`. Aux в YAML закомментирован, пока нет замера VRAM на 2080 Super.

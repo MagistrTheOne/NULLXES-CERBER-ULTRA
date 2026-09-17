@@ -23,19 +23,21 @@ CERBER — бортовой конвейер восприятия для маш�
 
 ## Задачи и веса
 
-Файл весов задаёт голову. Сегментация уже отдаёт боксы; отдельный detect-модель параллельно не нужен.
+Файл весов задаёт голову. Сегментация экземпляров уже отдаёт боксы; semantic — нет. Track работает только на detect / instance-seg / pose / OBB.
+
+Разбор — адаптеры в `cerber/core/adapters.py`, контейнер кадра — `FrameResult` (`instances`, `semantic`, `depth`, `classification`). Semantic читается из `result.semantic_mask.data` (карта классов HxW), не из instance-масок. Depth — `result.depth.data` в метрах; масштаб на своей камере нужно калибровать.
 
 | Задача | Веса | Выход | Зачем на платформе |
 | --- | --- | --- | --- |
-| Detect | `yolo26n.pt` … `x` | `result.boxes` | препятствия, люди, ТС, маркеры |
-| Instance seg | `yolo26n-seg.pt` | `masks` + `boxes` | форма, проезжаемость, захват |
-| Semantic | `yolo26n-sem.pt` | карта класса | дорога / небо / грунт без id |
-| Depth | `yolo26n-depth.pt` | глубина, м | грубая дистанция с одной камеры |
+| Detect | `yolo26n.pt` | `result.boxes` | препятствия, люди, ТС |
+| Instance seg | `yolo26n-seg.pt` | `masks` + `boxes` | форма, проезжаемость |
+| Semantic | `yolo26n-sem.pt` | `semantic_mask` | дорога / небо / грунт без id |
+| Depth | `yolo26n-depth.pt` | глубина, м | грубая дистанция |
 | Pose | `yolo26n-pose.pt` | keypoints | человек, оператор |
-| OBB | `yolo26n-obb.pt` | повёрнутые рамки | надир, техника сверху |
-| Classify | `yolo26n-cls.pt` | `probs` | тип сцены, не первый шаг |
+| OBB | `yolo26n-obb.pt` | повёрнутые рамки | надир; не чинит recall VisDrone |
+| Classify | `yolo26n-cls.pt` | `probs` | тип сцены, ImageNet-классы |
 
-Порядок: detect + track → instance seg → при необходимости semantic/depth → pose или OBB по домену.
+Порядок лаборатории: готовые веса (`python -m cerber.experiments.probe`) → пять smoke без detect/seg → профили `runtime-ground` / `runtime-indoor` / `runtime-air` / `runtime-drone`. Aux-модули в профилях выключены, пока probe не показал VRAM и p95.
 
 Масштаб: начать с `n`, сравнить с `s` на том же видео. `m/l/x` — офлайн, пока n/s не упрутся в качество.
 
@@ -47,7 +49,9 @@ Ultralytics импортировать только в детекторе (и т
 | --- | --- |
 | `cerber/config.py` | model, imgsz, conf, iou, device, tracker, source |
 | `cerber/core/capture.py` | камера / RTSP / файл → BGR кадр + timestamp |
-| `cerber/core/detector.py` | `YOLO(weights)`, `predict` / `track`, разбор `Results` |
+| `cerber/core/detector.py` | `YOLO(weights)`, `infer` → `FrameResult` |
+| `cerber/core/adapters.py` | разбор boxes / masks / obb / keypoints / semantic / depth / cls |
+| `cerber/core/result.py` | `FrameResult`, `Detection`, `Classification` |
 | `cerber/core/pipeline.py` | цикл кадра, тайминг FPS/p95 |
 | `cerber/features/tracking.py` | `persist=True`, выбор YAML трекера |
 | `cerber/features/scene.py` | краткая память объектов по id |
@@ -133,8 +137,9 @@ Windows: код обучения под `if __name__ == "__main__":`. Неско
 3. `track` + `scene`.
 4. `events` → `outputs/`.
 5. Те же классы на `*-seg`.
-6. Свой датасет, `train` / `val`.
-7. Сравнение n/s, затем export.
+6. Probe семи готовых голов, затем smoke OBB/pose/semantic/depth/cls.
+7. Свой датасет, `train` / `val`.
+8. Сравнение n/s, затем export.
 
 ## Лицензия
 

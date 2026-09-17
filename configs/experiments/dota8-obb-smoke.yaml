@@ -1,0 +1,13 @@
+model: yolo26n-obb.pt
+data: dota8.yaml
+task: obb
+epochs: 3
+imgsz: 640
+device: 0
+batch: 8
+optimizer: auto
+project: outputs
+name: dota8-obb-smoke
+patience: 10
+workers: 2
+exist_ok: true

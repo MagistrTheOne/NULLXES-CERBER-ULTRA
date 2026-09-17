@@ -1,0 +1,25 @@
+# Indoor robot: instance-seg + tracker. Enable pose/depth after probe.
+weights: yolo26n-seg.pt
+source: 0
+imgsz: 640
+conf: 0.25
+iou: 0.7
+device: 0
+tracker: bytetrack.yaml
+task: segment
+persist: true
+show: false
+verbose: false
+max_lost: 30
+events_dir: outputs/events
+log_every: 30
+aux: []
+# aux:
+#   - weights: yolo26n-depth.pt
+#     task: depth
+#     every: 8
+#     imgsz: 768
+#   - weights: yolo26n-pose.pt
+#     task: pose
+#     every: 5
+#     imgsz: 640

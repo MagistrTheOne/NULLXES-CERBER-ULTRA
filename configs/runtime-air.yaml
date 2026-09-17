@@ -1,0 +1,21 @@
+# Aerial camera: VisDrone detect + tracker. OBB stays optional; it does not fix small-object recall.
+weights: outputs/visdrone-n/weights/best.pt
+source: 0
+imgsz: 640
+conf: 0.25
+iou: 0.7
+device: 0
+tracker: bytetrack.yaml
+task: detect
+persist: true
+show: false
+verbose: false
+max_lost: 30
+events_dir: outputs/events
+log_every: 30
+aux: []
+# aux:
+#   - weights: yolo26n-obb.pt
+#     task: obb
+#     every: 5
+#     imgsz: 1024
