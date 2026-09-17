@@ -63,14 +63,29 @@ def split_train_val(
     return train_pairs, val_pairs
 
 
-def write_data_yaml(root: Path) -> Path:
+def write_data_yaml(root: Path, test: str | None = None) -> Path:
+    lines = [
+        f"path: {root.as_posix()}",
+        "train: images/train",
+        "val: images/val",
+    ]
+    if test:
+        lines.append(f"test: {test}")
+    lines.extend(["names:", "  0: drone", ""])
+    yaml_path = root / "data.yaml"
+    yaml_path.write_text("\n".join(lines), encoding="utf-8")
+    return yaml_path
+
+
+def write_eval_yaml(root: Path) -> Path:
     yaml_path = root / "data.yaml"
     yaml_path.write_text(
         "\n".join(
             [
                 f"path: {root.as_posix()}",
-                "train: images/train",
-                "val: images/val",
+                "train: images",
+                "val: images",
+                "test: images",
                 "names:",
                 "  0: drone",
                 "",
@@ -81,6 +96,28 @@ def write_data_yaml(root: Path) -> Path:
     return yaml_path
 
 
+def _download_batch(split: str, index: int, images_raw: Path, labels_raw: Path) -> None:
+    from huggingface_hub import hf_hub_download
+
+    batch = f"{index:03d}"
+    image_zip = Path(
+        hf_hub_download(
+            repo_id=REPO_ID,
+            repo_type="dataset",
+            filename=f"{split}/images/batch_{batch}.zip",
+        )
+    )
+    label_zip = Path(
+        hf_hub_download(
+            repo_id=REPO_ID,
+            repo_type="dataset",
+            filename=f"{split}/labels/batch_{batch}.zip",
+        )
+    )
+    _extract_zip(image_zip, images_raw)
+    _extract_zip(label_zip, labels_raw)
+
+
 def prepare(
     batches: int,
     val_fraction: float,
@@ -88,8 +125,6 @@ def prepare(
     seed: int,
     output_dir: Path,
 ) -> Path:
-    from huggingface_hub import hf_hub_download
-
     raw_root = output_dir / "raw"
     subset_root = output_dir / "subset"
     images_raw = raw_root / "train" / "images"
@@ -98,23 +133,7 @@ def prepare(
     labels_raw.mkdir(parents=True, exist_ok=True)
 
     for index in range(1, batches + 1):
-        batch = f"{index:03d}"
-        image_zip = Path(
-            hf_hub_download(
-                repo_id=REPO_ID,
-                repo_type="dataset",
-                filename=f"train/images/batch_{batch}.zip",
-            )
-        )
-        label_zip = Path(
-            hf_hub_download(
-                repo_id=REPO_ID,
-                repo_type="dataset",
-                filename=f"train/labels/batch_{batch}.zip",
-            )
-        )
-        _extract_zip(image_zip, images_raw)
-        _extract_zip(label_zip, labels_raw)
+        _download_batch("train", index, images_raw, labels_raw)
 
     pairs = _pairs(images_raw, labels_raw)
     rng = random.Random(seed)
@@ -130,17 +149,42 @@ def prepare(
     return yaml_path
 
 
+def prepare_official_test(output_dir: Path, max_images: int | None = None) -> Path:
+    raw_root = output_dir / "raw" / "test"
+    eval_root = output_dir / "official-test"
+    images_raw = raw_root / "images"
+    labels_raw = raw_root / "labels"
+    images_raw.mkdir(parents=True, exist_ok=True)
+    labels_raw.mkdir(parents=True, exist_ok=True)
+    _download_batch("test", 1, images_raw, labels_raw)
+    pairs = _pairs(images_raw, labels_raw)
+    if max_images is not None:
+        pairs = pairs[: max(0, max_images)]
+    if not pairs:
+        raise RuntimeError("Seraphim official test is empty after download/extract")
+    _copy_split(pairs, eval_root / "images", eval_root / "labels")
+    yaml_path = write_eval_yaml(eval_root)
+    print(f"official_test={len(pairs)} yaml={yaml_path}")
+    print("eval yaml is for val/predict only — never pass it to train")
+    return yaml_path
+
+
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Download a Seraphim train subset and split val from train")
+    parser = argparse.ArgumentParser(description="Download a Seraphim train subset and/or official test")
     parser.add_argument("--batches", type=int, default=1)
     parser.add_argument("--val-fraction", type=float, default=0.1)
     parser.add_argument("--max-images", type=int, default=4000)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--output", default="data/seraphim")
+    parser.add_argument("--test-only", action="store_true", help="download official test without touching train/val")
+    parser.add_argument("--max-test-images", type=int, default=None)
     args = parser.parse_args(argv)
     output_dir = Path(args.output)
     if not output_dir.is_absolute():
         output_dir = project_root() / output_dir
+    if args.test_only:
+        prepare_official_test(output_dir, max_images=args.max_test_images)
+        return 0
     prepare(
         batches=args.batches,
         val_fraction=args.val_fraction,

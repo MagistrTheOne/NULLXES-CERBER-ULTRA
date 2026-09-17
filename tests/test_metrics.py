@@ -1,18 +1,30 @@
 from types import SimpleNamespace
 
 from cerber.experiments.metrics import extract_metrics
+from cerber.experiments.val import named_per_class
 
 
 def test_extract_detect_and_seg_metrics() -> None:
     metrics = SimpleNamespace(
-        box=SimpleNamespace(map=0.16, map50=0.29, mp=0.41, mr=0.32, maps=[0.1, 0.2]),
+        box=SimpleNamespace(map=0.16, map50=0.29, mp=0.41, mr=0.32, maps=[0.1, 0.2], p=[0.4, 0.5], r=[0.3, 0.2], ap50=[0.28, 0.3]),
         seg=SimpleNamespace(map=0.33, map50=0.51, maps=[0.3]),
     )
     payload = extract_metrics(metrics)
     assert payload["map50-95"] == 0.16
     assert payload["recall"] == 0.32
+    assert payload["precision_per_class"] == [0.4, 0.5]
     assert payload["mask_map50"] == 0.51
     assert payload["map50-95_per_class"] == [0.1, 0.2]
+
+
+def test_named_per_class() -> None:
+    payload = named_per_class(
+        {0: "pedestrian", 1: "people"},
+        {"precision_per_class": [0.41, 0.3], "recall_per_class": [0.32, 0.18]},
+    )
+    assert payload is not None
+    assert payload["pedestrian"]["recall"] == 0.32
+    assert payload["people"]["precision"] == 0.3
 
 
 def test_extract_semantic_depth_pose_cls() -> None:

@@ -36,6 +36,9 @@ def extract_metrics(metrics: object) -> dict[str, Any]:
         payload["precision"] = _f(getattr(box, "mp", None))
         payload["recall"] = _f(getattr(box, "mr", None))
         payload["map50-95_per_class"] = _list(getattr(box, "maps", None))
+        payload["map50_per_class"] = _list(getattr(box, "ap50", None))
+        payload["precision_per_class"] = _list(getattr(box, "p", None))
+        payload["recall_per_class"] = _list(getattr(box, "r", None))
     seg = getattr(metrics, "seg", None)
     if seg is not None:
         payload["mask_map50-95"] = _f(getattr(seg, "map", None))

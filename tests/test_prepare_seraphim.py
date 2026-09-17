@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from cerber.experiments.prepare_seraphim import split_train_val, write_data_yaml
+from cerber.experiments.prepare_seraphim import split_train_val, write_data_yaml, write_eval_yaml
 
 
 def _pairs(n: int, tmp_path: Path) -> list[tuple[Path, Path]]:
@@ -20,6 +20,13 @@ def test_write_seraphim_data_yaml(tmp_path: Path) -> None:
     assert "0: drone" in text
     assert "train: images/train" in text
     assert "val: images/val" in text
+    assert "test:" not in text
+
+
+def test_write_eval_yaml_is_test_only(tmp_path: Path) -> None:
+    text = write_eval_yaml(tmp_path).read_text(encoding="utf-8")
+    assert "test: images" in text
+    assert "0: drone" in text
 
 
 def test_split_rejects_full_val_fraction(tmp_path: Path) -> None:

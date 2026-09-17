@@ -1,0 +1,13 @@
+model: yolo26n.pt
+data: VisDrone.yaml
+epochs: 50
+imgsz: 960
+device: 0
+batch: -1
+optimizer: auto
+project: outputs
+name: visdrone-n-960
+patience: 20
+workers: 8
+exist_ok: true
+seed: 42

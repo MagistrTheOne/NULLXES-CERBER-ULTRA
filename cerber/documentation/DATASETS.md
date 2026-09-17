@@ -33,10 +33,11 @@
 
 Карточка: [lgrzybowski/seraphim-drone-detection-dataset](https://huggingface.co/datasets/lgrzybowski/seraphim-drone-detection-dataset).
 
-Изображения уже 640×640 (resize+pad). Есть фото, реклама и синтетика. Дубли чистили, ручную переразметку автор не обещает. Берём подвыборку батчей train, val режем из train, официальный test не качаем и не мешаем в val.
+Изображения уже 640×640 (resize+pad). Есть фото, реклама и синтетика. Дубли чистили, ручную переразметку автор не обещает. Берём подвыборку батчей train, val режем из train. Официальный test качается отдельно (`--test-only`) и не мешается в train/val.
 
 ```bash
 python -m cerber.experiments.prepare_seraphim --batches 1 --max-images 4000 --val-fraction 0.1
+python -m cerber.experiments.prepare_seraphim --test-only --output data/seraphim
 ```
 
 ## Команды train
