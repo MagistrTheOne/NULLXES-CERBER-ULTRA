@@ -1,104 +1,237 @@
-# Colab A100: обучение YOLO26
+# Colab A100: с нуля
 
-Локалка — камера и runtime. Colab — train / val / export. Не гонять `python -m cerber` как прод с вебкамеры ноутбука Colab.
+Runtime: **A100, большой объём ОЗУ, Python 3**. Не запускай train, пока ячейка GPU не печатает `NVIDIA A100`.
 
-Ноутбук: `notebooks/NULLXES_YOLO26.ipynb`.
+Эпохи в конфигах:
 
-## 1. Среда
+| Эксперимент | Конфиг | Эпохи | Зачем |
+| --- | --- | --- | --- |
+| smoke seg | `coco8-seg.yaml` | **3** | проверка пайплайна |
+| VisDrone detect | `visdrone-n.yaml` | **50** | люди/транспорт с воздуха |
+| Seraphim drone | `seraphim-subset.yaml` | **50** | класс `drone`, подвыборка |
 
-Runtime → A100 (High-RAM). Первая ячейка:
+Не дообучай VisDrone поверх COCO-seg и Seraphim поверх VisDrone — разные class id.
+
+Репозиторий: `https://github.com/MagistrTheOne/NULLXES-CERBER-ULTRA.git`
+
+---
+
+## Ячейка 0 — GPU
 
 ```python
 import torch
-print(torch.cuda.get_device_name(0) if torch.cuda.is_available() else "NO GPU")
-assert torch.cuda.is_available(), "подключи A100, не запускай train на CPU"
+print(torch.__version__, torch.cuda.get_device_name(0) if torch.cuda.is_available() else "NO GPU")
+assert torch.cuda.is_available() and "A100" in torch.cuda.get_device_name(0), "выбери A100"
 ```
 
-Если «Не удалось подключиться к среде выполнения»: Disconnect and reconnect, снова A100. Квота Pro может быть занята.
-
-## 2. Пакеты
+## Ячейка 1 — пакеты + Hugging Face Transfer
 
 ```python
-%pip install -U ultralytics huggingface_hub pyyaml
-```
-
-Не ставить `opencv-python-headless` поверх GUI-сборки, если позже понадобится `show` на локалке. В Colab headless нормален.
-
-Проверка:
-
-```python
-import ultralytics
-from huggingface_hub import hf_hub_download
-print("ultralytics", ultralytics.__version__)
-```
-
-## 3. Hugging Face
-
-Seraphim публичный; токен всё равно полезен против лимитов.
-
-```python
-from huggingface_hub import login
 import os
+os.environ["HF_HUB_ENABLE_HF_TRANSFER"] = "1"
 
-token = os.environ.get("HF_TOKEN")
+%pip install -U "huggingface_hub[hf_transfer]" ultralytics pyyaml hf_transfer
+```
+
+```python
+import os
+from huggingface_hub import login
+
+os.environ["HF_HUB_ENABLE_HF_TRANSFER"] = "1"
+
+try:
+    from google.colab import userdata
+    token = userdata.get("HF_TOKEN")
+except Exception:
+    token = os.environ.get("HF_TOKEN")
+
 if token:
     login(token=token, add_to_git_credential=False)
+    print("HF login ok, hf_transfer on")
 else:
-    print("HF_TOKEN не задан — публичные репо всё равно скачиваются")
+    print("HF_TOKEN нет — публичный Seraphim всё равно качается, лимиты могут резать скорость")
 ```
 
-В Colab: Secrets → `HF_TOKEN`. Либо:
+Colab → Secrets → `HF_TOKEN` (write access не нужен для публичных датасетов).
 
-```bash
-huggingface-cli login
-```
-
-Датасет: `lgrzybowski/seraphim-drone-detection-dataset` (`hf_hub_download`, zip-батчи). Полный dump ~9 ГБ не нужен — `prepare_seraphim --batches 1`.
-
-## 4. Код CERBER на Drive
-
-Залей репозиторий (без `data/`, `outputs/`, `*.pt`) на Google Drive, затем:
+## Ячейка 2 — clone + Drive под outputs
 
 ```python
 from google.colab import drive
 drive.mount("/content/drive")
-%cd "/content/drive/MyDrive/NULLXES CERBER ULTRA"
+
+%cd /content
+!git clone https://github.com/MagistrTheOne/NULLXES-CERBER-ULTRA.git
+%cd /content/NULLXES-CERBER-ULTRA
+
+import pathlib, sys
+root = pathlib.Path.cwd()
+sys.path.insert(0, str(root))
+print(root)
+assert (root / "cerber" / "__main__.py").is_file()
+
+# веса и прогоны на Drive, чтобы не потерять при отвале runtime
+!mkdir -p "/content/drive/MyDrive/CERBER-outputs"
+!ln -sfn "/content/drive/MyDrive/CERBER-outputs" /content/NULLXES-CERBER-ULTRA/outputs
 ```
 
-`sys.path` должен видеть пакет `cerber`. Рабочая папка = корень репо.
+Если репозиторий **private**:
 
-Веса и прогоны пиши на Drive: `outputs/` уже в `.gitignore`.
-
-## 5. Порядок экспериментов (отдельные веса)
-
-Не делать `COCO → VisDrone → Seraphim` на одном `best.pt`.
-
-1. Smoke: `configs/experiments/coco8-seg.yaml` (несколько эпох, проверка train).
-2. VisDrone detect: `configs/experiments/visdrone-n.yaml`. Первый раз Ultralytics скачает и сконвертирует VisDrone.
-3. Seraphim subset: `python -m cerber.experiments.prepare_seraphim ...` затем `configs/experiments/seraphim-subset.yaml`.
-4. `val` и `export onnx` для выбранного `--config`.
-5. Скачай `outputs/<name>/weights/best.pt` на ПК.
-
-```bash
-python -m cerber.experiments.train --config configs/experiments/coco8-seg.yaml
-python -m cerber.experiments.train --config configs/experiments/visdrone-n.yaml
-python -m cerber.experiments.prepare_seraphim --batches 1 --max-images 4000
-python -m cerber.experiments.train --config configs/experiments/seraphim-subset.yaml
-python -m cerber.experiments.val --config configs/experiments/visdrone-n.yaml
-python -m cerber.experiments.export --config configs/experiments/visdrone-n.yaml --format onnx
+```python
+from google.colab import userdata
+gh = userdata.get("GITHUB_TOKEN")
+%cd /content
+!git clone https://{gh}@github.com/MagistrTheOne/NULLXES-CERBER-ULTRA.git
+%cd /content/NULLXES-CERBER-ULTRA
 ```
 
-Windows-обёртка `if __name__ == "__main__"` в скриптах есть; в Colab вызывай так же через `python -m`.
+## Ячейка 3 — smoke COCO-seg, 3 эпохи
 
-## 6. На локалку после Colab
+Ultralytics сам тянет `coco8-seg` и `yolo26n-seg.pt`.
 
-- COCO-seg борт: `configs/runtime.yaml` + `yolo26n-seg.pt` (можно без своего train).
-- VisDrone: `best.pt` → `outputs/visdrone-n/weights/best.pt`, запуск `configs/runtime-visdrone.yaml`.
-- Drone: `outputs/seraphim-n/weights/best.pt` + `configs/runtime-drone.yaml`.
-
-```bash
-python -m cerber --config configs/runtime.yaml
-python -m cerber --config configs/runtime.yaml --source 0 --show
+```python
+!python -m cerber.experiments.train --config configs/experiments/coco8-seg.yaml
 ```
 
-После export сверь ONNX и `.pt` на одних кадрах (`yolo predict` / тот же `source`).
+## Ячейка 4 — VisDrone, 50 эпох
+
+Датасет качает и конвертирует Ultralytics (`VisDrone.yaml`), не Hugging Face. Боксы, модель `yolo26n.pt`. На A100 `batch: -1` (autobatch).
+
+```python
+!python -m cerber.experiments.train --config configs/experiments/visdrone-n.yaml
+!python -m cerber.experiments.val --config configs/experiments/visdrone-n.yaml
+!python -m cerber.experiments.export --config configs/experiments/visdrone-n.yaml --format onnx
+```
+
+Ожидай десятки минут–пара часов на 50 эпох. `patience: 20` может остановить раньше.
+
+## Ячейка 5 — Seraphim через HF Transfer, 50 эпох
+
+Качает zip-батчи с Hugging Face, val режется из train, **test не трогаем**.
+
+```python
+import os
+os.environ["HF_HUB_ENABLE_HF_TRANSFER"] = "1"
+
+!python -m cerber.experiments.prepare_seraphim --batches 1 --max-images 4000 --val-fraction 0.1 --output data/seraphim
+!python -m cerber.experiments.train --config configs/experiments/seraphim-subset.yaml
+!python -m cerber.experiments.val --config configs/experiments/seraphim-subset.yaml
+!python -m cerber.experiments.export --config configs/experiments/seraphim-subset.yaml --format onnx
+```
+
+Больше мяса (осторожно с диском Colab):
+
+```python
+!python -m cerber.experiments.prepare_seraphim --batches 3 --max-images 12000 --val-fraction 0.1
+```
+
+Карточка: [lgrzybowski/seraphim-drone-detection-dataset](https://huggingface.co/datasets/lgrzybowski/seraphim-drone-detection-dataset). Картинки уже 640×640, `imgsz=640` не вернёт детали.
+
+## Ячейка 6 — что скачать на ПК
+
+С Drive / `outputs/`:
+
+- `outputs/visdrone-n/weights/best.pt` → локально тот же путь, `python -m cerber --config configs/runtime-visdrone.yaml`
+- `outputs/seraphim-n/weights/best.pt` → `configs/runtime-drone.yaml`
+- COCO-seg борт без своего train: `python -m cerber --config configs/runtime.yaml`
+
+```python
+!ls -lh outputs/coco8-seg-smoke/weights/ outputs/visdrone-n/weights/ outputs/seraphim-n/weights/
+```
+
+---
+
+## После smoke (pip и clone уже сделаны)
+
+Не повторяй `pip install`. `HF_HUB_ENABLE_HF_TRANSFER` не ставить — у тебя `hf-xet`.
+
+### A. Пути, Drive, оба скачивания одним блоком
+
+```python
+import os, sys, subprocess
+from pathlib import Path
+from datetime import datetime, timezone
+import yaml
+from google.colab import drive, userdata
+
+os.environ.pop("HF_HUB_ENABLE_HF_TRANSFER", None)
+os.environ["HF_XET_HIGH_PERFORMANCE"] = "1"
+os.environ["HF_TOKEN"] = userdata.get("HF_TOKEN")
+
+from huggingface_hub import HfApi
+print("HF:", HfApi().whoami()["name"])
+
+drive.mount("/content/drive", force_remount=False)
+
+repo = Path("/content/NULLXES-CERBER-ULTRA")
+assert repo.exists(), "нет клона репо"
+os.chdir(repo)
+sys.path.insert(0, str(repo))
+
+run_root = Path("/content/drive/MyDrive/CERBER-outputs") / datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+config_dir = run_root / "configs"
+config_dir.mkdir(parents=True, exist_ok=True)
+
+sources = {
+    "visdrone": "configs/experiments/visdrone-n.yaml",
+    "seraphim": "configs/experiments/seraphim-subset.yaml",
+}
+configs = {}
+for key, source in sources.items():
+    cfg = yaml.safe_load(Path(source).read_text(encoding="utf-8"))
+    cfg.update(project=str(run_root), optimizer="auto", seed=42, save=True)
+    if key == "seraphim":
+        cfg["data"] = str(repo / "data/seraphim/subset/data.yaml")
+    dest = config_dir / f"{key}.yaml"
+    dest.write_text(yaml.safe_dump(cfg, sort_keys=False), encoding="utf-8")
+    configs[key] = dest
+    print(key, cfg["epochs"], "эпох", cfg["model"])
+
+def execute(module, *args):
+    subprocess.run([sys.executable, "-u", "-m", module, *map(str, args)], cwd=repo, check=True)
+
+from ultralytics.data.utils import check_det_dataset
+print("качаю VisDrone через Ultralytics…")
+check_det_dataset("VisDrone.yaml")
+
+seraphim_dir = repo / "data/seraphim"
+if not (seraphim_dir / "subset" / "data.yaml").exists():
+    print("качаю Seraphim через Hugging Face (hf-xet), 1 батч ≤4000…")
+    execute(
+        "cerber.experiments.prepare_seraphim",
+        "--batches", 1,
+        "--max-images", 4000,
+        "--val-fraction", 0.1,
+        "--seed", 42,
+        "--output", str(seraphim_dir),
+    )
+else:
+    print("Seraphim subset уже есть, download skip")
+
+print("готово. run_root =", run_root)
+```
+
+### B. VisDrone — до 50 эпох
+
+```python
+execute("cerber.experiments.train", "--config", configs["visdrone"])
+execute("cerber.experiments.val", "--config", configs["visdrone"])
+execute("cerber.experiments.export", "--config", configs["visdrone"], "--format", "onnx")
+```
+
+### C. Seraphim — до 50 эпох
+
+```python
+execute("cerber.experiments.train", "--config", configs["seraphim"])
+execute("cerber.experiments.val", "--config", configs["seraphim"])
+execute("cerber.experiments.export", "--config", configs["seraphim"], "--format", "onnx")
+```
+
+### D. Веса
+
+```python
+for weights in sorted(run_root.glob("*/weights/*")):
+    if weights.suffix in {".pt", ".onnx"}:
+        print(weights.relative_to(run_root), f"{weights.stat().st_size / 1024**2:.1f} MiB")
+print(run_root)
+```

@@ -41,6 +41,28 @@ def _copy_split(pairs: list[tuple[Path, Path]], images_out: Path, labels_out: Pa
         shutil.copy2(label, labels_out / label.name)
 
 
+def split_train_val(
+    pairs: list[tuple[Path, Path]],
+    val_fraction: float,
+) -> tuple[list[tuple[Path, Path]], list[tuple[Path, Path]]]:
+    if not pairs:
+        raise RuntimeError("Seraphim subset is empty after download/extract")
+    if not 0.0 < val_fraction < 1.0:
+        raise ValueError(f"val_fraction must be in (0, 1), got {val_fraction}")
+    if len(pairs) < 2:
+        raise ValueError("need at least 2 images to split train/val without leakage")
+    val_count = int(len(pairs) * val_fraction)
+    val_count = min(max(val_count, 1), len(pairs) - 1)
+    val_pairs = pairs[:val_count]
+    train_pairs = pairs[val_count:]
+    if not train_pairs or not val_pairs:
+        raise RuntimeError("train/val split produced an empty split")
+    overlap = {path for path, _ in train_pairs} & {path for path, _ in val_pairs}
+    if overlap:
+        raise RuntimeError("train/val split leaked images")
+    return train_pairs, val_pairs
+
+
 def write_data_yaml(root: Path) -> Path:
     yaml_path = root / "data.yaml"
     yaml_path.write_text(
@@ -99,15 +121,11 @@ def prepare(
     rng.shuffle(pairs)
     if max_images is not None:
         pairs = pairs[: max(0, max_images)]
-    if not pairs:
-        raise RuntimeError("Seraphim subset is empty after download/extract")
-    val_count = max(1, int(len(pairs) * val_fraction)) if len(pairs) > 1 else 0
-    val_pairs = pairs[:val_count]
-    train_pairs = pairs[val_count:] or pairs
+    train_pairs, val_pairs = split_train_val(pairs, val_fraction)
     _copy_split(train_pairs, subset_root / "images" / "train", subset_root / "labels" / "train")
-    _copy_split(val_pairs or train_pairs[:1], subset_root / "images" / "val", subset_root / "labels" / "val")
+    _copy_split(val_pairs, subset_root / "images" / "val", subset_root / "labels" / "val")
     yaml_path = write_data_yaml(subset_root)
-    print(f"train={len(train_pairs)} val={len(val_pairs or train_pairs[:1])} yaml={yaml_path}")
+    print(f"train={len(train_pairs)} val={len(val_pairs)} yaml={yaml_path}")
     print("official Seraphim test split was not downloaded")
     return yaml_path
 
